@@ -6,6 +6,8 @@
 //
 
 #import "MyTableController.h"
+#import <Bolts/Bolts.h>
+
 
 @implementation MyTableController
 
@@ -31,7 +33,7 @@
         self.paginationEnabled = YES;
         
         // The number of objects to show per page
-        self.objectsPerPage = 5;
+        self.objectsPerPage = 2;
     }
     return self;
 }
@@ -47,6 +49,19 @@
     
     // Uncomment the following line to display an Edit button in the navigation bar for this view controller.
     // self.navigationItem.rightBarButtonItem = self.editButtonItem;
+    
+    UIBarButtonItem *bbiRight =
+    [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd
+                                                  target:self
+                                                  action:@selector(addNewTodo:)];
+    
+    UIBarButtonItem *bbiLeft =
+    [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemTrash
+                                                  target:self
+                                                  action:@selector(resetTodos:)];
+    
+    [[self navigationItem] setRightBarButtonItem:bbiRight];
+    [[self navigationItem] setLeftBarButtonItem:bbiLeft];
 }
 
 - (void)viewDidUnload
@@ -116,7 +131,7 @@
         query.cachePolicy = kPFCachePolicyCacheThenNetwork;
     }
  
-    [query orderByAscending:@"priority"];
+    [query orderByDescending:@"createdAt"];
  
     return query;
 }
@@ -134,8 +149,8 @@
     }
  
     // Configure the cell
-    cell.textLabel.text = [object objectForKey:@"text"];
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"Priority: %@", [object objectForKey:@"priority"]];
+    cell.textLabel.text = [NSString stringWithFormat:@"objectId: %@", [object objectId]];
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"CreatedAt: %@", [object createdAt]];
  
     return cell;
 }
@@ -215,5 +230,64 @@
     [super tableView:tableView didSelectRowAtIndexPath:indexPath];
 }
 
+#pragma mark - ()
+
+- (void)addNewTodo:(id)sender
+{
+    PFObject *object = [PFObject objectWithClassName:@"Todo"];
+    [object setObject:@"Sample Text" forKey:@"text"];
+    [object setObject:@1 forKey:@"priority"];
+    [object saveInBackgroundWithBlock:^(BOOL succeeded, NSError *error) {
+        // LET'S NOT REFRESH to simulate a new added object in db not created by us
+        
+        // Refresh the table when the object is done saving.
+//        [controller loadObjects];
+    }];
+}
+
+- (void)resetTodos:(id)sender
+{
+    PFQuery *query = [PFQuery queryWithClassName:@"Todo"];
+    [query setLimit:1000];
+    [[[self findAsync:query] continueWithBlock:^id(BFTask *task) {
+        
+        NSMutableArray *tasks = [NSMutableArray array];
+        
+        for (PFObject *todo in task.result) {
+            [tasks addObject:[self deleteAsync:todo]];
+        }
+        // Return a new task that will be marked as completed when all of the deletes are
+        // finished.
+        return [BFTask taskForCompletionOfAllTasks:tasks];
+    }] continueWithBlock:^id(BFTask *task) {
+        // Every todo was deleted.
+        [self loadObjects];
+        return nil;
+    }];
+}
+
+- (BFTask *) findAsync:(PFQuery *)query {
+    BFTaskCompletionSource *task = [BFTaskCompletionSource taskCompletionSource];
+    [query findObjectsInBackgroundWithBlock:^(NSArray *objects, NSError *error) {
+        if (!error) {
+            [task setResult:objects];
+        } else {
+            [task setError:error];
+        }
+    }];
+    return task.task;
+}
+
+- (BFTask *) deleteAsync:(PFObject *)object {
+    BFTaskCompletionSource *task = [BFTaskCompletionSource taskCompletionSource];
+    [object deleteInBackgroundWithBlock:^(BOOL succeeded, NSError *error) {
+        if (!error ) {
+            [task setResult:[NSNumber numberWithBool:succeeded]];
+        } else {
+            [task setError:error];
+        }
+    }];
+    return task.task;
+}
 
 @end
